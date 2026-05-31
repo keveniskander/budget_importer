@@ -12,7 +12,7 @@ statements/
 statement.txt
 statement_raw.txt
 transactions.txt
-
+learned_categories.json
 # =========================
 # PYTHON CACHE
 # =========================
