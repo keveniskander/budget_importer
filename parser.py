@@ -2,9 +2,22 @@ import pdfplumber
 import re
 import json
 import os
+import sys
 from datetime import datetime
 
-PDF_FILE = "statements/amex_2026-05-24.pdf"
+# =========================
+# INPUT FILE (NO HARDCODING)
+# =========================
+if len(sys.argv) < 2:
+    print("Usage: python parser.py <pdf_file_path>")
+    sys.exit(1)
+
+PDF_FILE = sys.argv[1]
+
+if not os.path.exists(PDF_FILE):
+    print(f"File not found: {PDF_FILE}")
+    sys.exit(1)
+
 LEARNED_FILE = "learned_categories.json"
 
 # =========================
@@ -35,14 +48,13 @@ def save_learned():
     with open(LEARNED_FILE, "w", encoding="utf-8") as f:
         json.dump(LEARNED, f, indent=2)
 
-
 # =========================
 # CATEGORY FUNCTION
 # =========================
 def categorize(merchant):
     m = merchant.upper()
 
-    # 1. CHECK MEMORY FIRST
+    # 1. MEMORY FIRST
     if merchant in LEARNED:
         return LEARNED[merchant]
 
@@ -57,7 +69,6 @@ def categorize(merchant):
     LEARNED[merchant] = "Other"
     return "Other"
 
-
 # =========================
 # DATE CONVERTER
 # =========================
@@ -67,7 +78,6 @@ def convert_date(may_day):
     day = int(re.findall(r"\d+", may_day)[0])
     return datetime(year, month, day).strftime("%Y-%m-%d")
 
-
 # =========================
 # CLEAN MERCHANT
 # =========================
@@ -76,7 +86,6 @@ def clean_merchant(text):
     parts = text.split()
     cleaned = [p for p in parts if p not in noise]
     return " ".join(cleaned).title()
-
 
 # =========================
 # EXTRACT PDF
@@ -93,7 +102,6 @@ with open("statement_raw.txt", "w", encoding="utf-8") as f:
     f.write(text)
 
 print("Raw text saved")
-
 
 # =========================
 # PARSE TRANSACTIONS
@@ -114,7 +122,6 @@ for posted_date, transaction_date, description, amount in matches:
         "category": category,
         "amount": float(amount)
     })
-
 
 # =========================
 # OUTPUT
