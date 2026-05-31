@@ -1,0 +1,37 @@
+# =========================
+# VIRTUAL ENVIRONMENT
+# =========================
+venv/
+.env/
+
+# =========================
+# BANK / FINANCIAL FILES (CRITICAL)
+# =========================
+statements/
+*.pdf
+statement.txt
+statement_raw.txt
+transactions.txt
+
+# =========================
+# PYTHON CACHE
+# =========================
+__pycache__/
+*.pyc
+
+# =========================
+# IDE / VSCODE
+# =========================
+.vscode/
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# CREDENTIALS
+# =========================
+credentials.json
+.env
