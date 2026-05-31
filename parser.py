@@ -64,15 +64,29 @@ def categorize(merchant):
     return "Other"
 
 # =========================
-# DATE CONVERTER (AMEX FORMAT)
+# DATE PARSER (FIXED - ALL MONTHS)
 # =========================
-def convert_date(may_day):
+def convert_date(raw_date):
+    months = {
+        "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4,
+        "MAY": 5, "JUN": 6, "JUL": 7, "AUG": 8,
+        "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
+    }
+
+    raw_date = raw_date.upper().replace(".", "").strip()
+
+    parts = raw_date.split()
+    if len(parts) < 2:
+        return None
+
+    month_str = parts[0][:3]
+    day = int(re.findall(r"\d+", parts[1])[0])
+
+    month = months.get(month_str, 1)
+
     year = 2026
 
-    # handles both "May2" and "Apr. 10"
-    day = int(re.findall(r"\d+", may_day)[0])
-
-    return datetime(year, 5, day).strftime("%Y-%m-%d")
+    return datetime(year, month, day).strftime("%Y-%m-%d")
 
 # =========================
 # CLEAN MERCHANT
@@ -84,7 +98,7 @@ def clean_merchant(text):
     return " ".join(cleaned).title()
 
 # =========================
-# EXTRACT PDF
+# EXTRACT PDF TEXT
 # =========================
 text = ""
 
@@ -100,13 +114,10 @@ with open("statement_raw.txt", "w", encoding="utf-8") as f:
 print("Raw text saved")
 
 # =========================
-# SPLIT LINES (IMPORTANT FIX)
+# BUILD CLEAN LINES FIRST (IMPORTANT FIX)
 # =========================
 lines = text.split("\n")
 
-# =========================
-# BUILD TRANSACTIONS (MULTI-LINE SAFE)
-# =========================
 transactions = []
 buffer = None
 
@@ -116,14 +127,13 @@ for line in lines:
     if not line:
         continue
 
-    # skip headers
-    if "DESCRIPTION" in line or "AMOUNT" in line or "Card number" in line:
+    # skip headers/noise
+    if "DESCRIPTION" in line or "AMOUNT" in line:
+        continue
+    if "Card number" in line or "TRANS POSTING" in line:
         continue
 
-    if "TRANS POSTING" in line:
-        continue
-
-    # detect new transaction start (Apr. 10, May. 2, etc.)
+    # detect new transaction line
     if re.match(r"^[A-Za-z]{3}\.?\s*\d{1,2}", line):
 
         if buffer:
@@ -141,7 +151,7 @@ if buffer:
     transactions.append(buffer)
 
 # =========================
-# EXTRACT FINAL FIELDS
+# EXTRACT FINAL DATA
 # =========================
 final_transactions = []
 
@@ -159,14 +169,18 @@ for t in transactions:
 
     amount = float(amount)
 
-    # handle credits (CR)
+    # handle credits
     if "CR" in t["raw"]:
         amount = -amount
 
     category = categorize(merchant)
 
+    date = convert_date(transaction_date)
+    if not date:
+        continue
+
     final_transactions.append({
-        "date": convert_date(transaction_date),
+        "date": date,
         "merchant": merchant,
         "category": category,
         "amount": amount
