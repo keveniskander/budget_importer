@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 
 # =========================
-# INPUT FILE
+# INPUT
 # =========================
 if len(sys.argv) < 2:
     print("Usage: python parser.py <pdf_file_path>")
@@ -15,13 +15,17 @@ if len(sys.argv) < 2:
 PDF_FILE = sys.argv[1]
 
 if not os.path.exists(PDF_FILE):
-    print(f"File not found: {PDF_FILE}")
+    print("File not found:", PDF_FILE)
     sys.exit(1)
 
+# =========================
+# FILES
+# =========================
 LEARNED_FILE = "learned_categories.json"
+OUTPUT_FILE = "transactions.txt"
 
 # =========================
-# CATEGORY RULES
+# RULES
 # =========================
 RULES = {
     "Groceries": ["SUPER C", "IGA", "METRO", "MAXI", "COSTCO", "MARCHE"],
@@ -33,7 +37,7 @@ RULES = {
 }
 
 # =========================
-# LOAD LEARNED DATA
+# LOAD LEARNING
 # =========================
 if os.path.exists(LEARNED_FILE):
     with open(LEARNED_FILE, "r", encoding="utf-8") as f:
@@ -46,7 +50,7 @@ def save_learned():
         json.dump(LEARNED, f, indent=2)
 
 # =========================
-# CATEGORY FUNCTION
+# CATEGORY ENGINE
 # =========================
 def categorize(merchant):
     m = merchant.upper()
@@ -54,148 +58,167 @@ def categorize(merchant):
     if merchant in LEARNED:
         return LEARNED[merchant]
 
-    for category, keywords in RULES.items():
+    for cat, keywords in RULES.items():
         for k in keywords:
             if k in m:
-                LEARNED[merchant] = category
-                return category
+                LEARNED[merchant] = cat
+                return cat
 
     LEARNED[merchant] = "Other"
     return "Other"
 
 # =========================
-# DATE PARSER (FIXED - ALL MONTHS)
+# DATE
 # =========================
-def convert_date(raw_date):
+def convert_date(raw):
+    if not raw:
+        return None
+
     months = {
         "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4,
         "MAY": 5, "JUN": 6, "JUL": 7, "AUG": 8,
         "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
     }
 
-    raw_date = raw_date.upper().replace(".", "").strip()
+    raw = raw.upper().replace(".", "").strip()
 
-    parts = raw_date.split()
-    if len(parts) < 2:
-        return None
+    # 🔥 FIX: handle May2 / Apr15 / etc (no space)
+    match = re.match(r"([A-Z]{3})(\d{1,2})", raw)
 
-    month_str = parts[0][:3]
-    day = int(re.findall(r"\d+", parts[1])[0])
+    if match:
+        mon, day = match.groups()
+        month = months.get(mon[:3], None)
 
-    month = months.get(month_str, 1)
+        if month is None:
+            return None
 
-    year = 2026
+        return datetime(2026, month, int(day)).strftime("%Y-%m-%d")
 
-    return datetime(year, month, day).strftime("%Y-%m-%d")
+    # fallback: handle "May 2"
+    parts = raw.split()
+
+    if len(parts) >= 2:
+        mon = parts[0][:3]
+        day = re.findall(r"\d+", parts[1])[0]
+
+        month = months.get(mon, None)
+
+        if month is None:
+            return None
+
+        return datetime(2026, month, int(day)).strftime("%Y-%m-%d")
+
+    return None
 
 # =========================
 # CLEAN MERCHANT
 # =========================
 def clean_merchant(text):
     noise = ["MONTREAL", "QC", "QUEBEC", "ON", "TORONTO", "WA", "SWE"]
-    parts = text.split()
-    cleaned = [p for p in parts if p not in noise]
-    return " ".join(cleaned).title()
+    return " ".join([w for w in text.split() if w not in noise]).title()
 
 # =========================
-# EXTRACT PDF TEXT
+# EXTRACT TEXT
 # =========================
-text = ""
-
-with pdfplumber.open(PDF_FILE) as pdf:
-    for page in pdf.pages:
-        page_text = page.extract_text()
-        if page_text:
-            text += page_text + "\n"
-
-with open("statement_raw.txt", "w", encoding="utf-8") as f:
-    f.write(text)
-
-print("Raw text saved")
+def extract_text(pdf_path):
+    text = ""
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            t = page.extract_text()
+            if t:
+                text += t + "\n"
+    return text
 
 # =========================
-# BUILD CLEAN LINES FIRST (IMPORTANT FIX)
+# AMEX PARSER (FIXED)
 # =========================
-lines = text.split("\n")
+def parse_amex(text):
+    pattern = re.compile(
+        r"^([A-Za-z]{3}\d{1,2})\s+([A-Za-z]{3}\d{1,2})\s+(.+)\s+(-?\d+\.\d{2})$"
+    )
 
-transactions = []
-buffer = None
+    results = []
 
-for line in lines:
-    line = line.strip()
+    for line in text.split("\n"):
+        match = pattern.search(line.strip())
+        if not match:
+            continue
 
-    if not line:
-        continue
+        d1, d2, merchant, amount = match.groups()
 
-    # skip headers/noise
-    if "DESCRIPTION" in line or "AMOUNT" in line:
-        continue
-    if "Card number" in line or "TRANS POSTING" in line:
-        continue
+        merchant = clean_merchant(merchant)
 
-    # detect new transaction line
-    if re.match(r"^[A-Za-z]{3}\.?\s*\d{1,2}", line):
+        results.append({
+            "date": convert_date(d2),
+            "merchant": merchant,
+            "category": categorize(merchant),
+            "amount": float(amount)
+        })
 
-        if buffer:
-            transactions.append(buffer)
-
-        buffer = {
-            "raw": line
-        }
-
-    else:
-        if buffer:
-            buffer["raw"] += " " + line
-
-if buffer:
-    transactions.append(buffer)
+    return results
 
 # =========================
-# EXTRACT FINAL DATA
+# BMO PARSER
 # =========================
-final_transactions = []
+def parse_bmo(text):
+    pattern = re.compile(
+        r"^([A-Za-z]{3}\.?\s*\d{1,2})\s+([A-Za-z]{3}\.?\s*\d{1,2})\s+(.+?)\s+(-?\d+\.\d{2})"
+    )
 
-pattern = r"([A-Za-z]{3}\.?\s*\d{1,2})\s+([A-Za-z]{3}\.?\s*\d{1,2})\s+(.+?)\s+(\d+\.\d{2})"
+    results = []
 
-for t in transactions:
+    for line in text.split("\n"):
+        match = pattern.search(line.strip())
+        if not match:
+            continue
 
-    match = re.search(pattern, t["raw"])
-    if not match:
-        continue
+        d1, d2, merchant, amount = match.groups()
 
-    posted_date, transaction_date, description, amount = match.groups()
+        merchant = clean_merchant(merchant)
 
-    merchant = clean_merchant(description)
+        results.append({
+            "date": convert_date(d2),
+            "merchant": merchant,
+            "category": categorize(merchant),
+            "amount": float(amount)
+        })
 
-    amount = float(amount)
-
-    # handle credits
-    if "CR" in t["raw"]:
-        amount = -amount
-
-    category = categorize(merchant)
-
-    date = convert_date(transaction_date)
-    if not date:
-        continue
-
-    final_transactions.append({
-        "date": date,
-        "merchant": merchant,
-        "category": category,
-        "amount": amount
-    })
+    return results
 
 # =========================
-# OUTPUT
+# BANK DETECTION
 # =========================
-for t in final_transactions[:10]:
-    print(t)
+def detect_bank(text):
+    t = text.upper()
 
-with open("transactions.txt", "w", encoding="utf-8") as f:
-    for t in final_transactions:
+    if "AMERICAN EXPRESS" in t or "AMEX" in t:
+        return "AMEX"
+
+    if "TRANS POSTING" in t:
+        return "BMO"
+
+    return "AMEX"
+
+# =========================
+# MAIN
+# =========================
+text = extract_text(PDF_FILE)
+
+bank = detect_bank(text)
+print("Detected bank:", bank)
+
+if bank == "AMEX":
+    transactions = parse_amex(text)
+else:
+    transactions = parse_bmo(text)
+
+# =========================
+# SAVE
+# =========================
+with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+    for t in transactions:
         f.write(f"{t['date']} | {t['merchant']} | {t['category']} | {t['amount']}\n")
 
 save_learned()
 
-print("Transactions saved + learning updated")
+print(f"Done: {len(transactions)} transactions")
