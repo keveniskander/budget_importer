@@ -82,7 +82,6 @@ def convert_date(raw):
 
     raw = raw.upper().replace(".", "").strip()
 
-    # 🔥 FIX: handle May2 / Apr15 / etc (no space)
     match = re.match(r"([A-Z]{3})(\d{1,2})", raw)
 
     if match:

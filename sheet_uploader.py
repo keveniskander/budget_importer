@@ -91,7 +91,7 @@ else:
     print("No new transactions to add (all duplicates).")
 
 # =========================
-# 🧠 AUTO LEARNING FROM SHEET
+# AUTO LEARNING FROM SHEET
 # =========================
 LEARNED_FILE = "learned_categories.json"
 
